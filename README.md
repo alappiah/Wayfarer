@@ -1,4 +1,4 @@
-# wayfarer
+# Wayfarer
 
 A new Flutter project.
 

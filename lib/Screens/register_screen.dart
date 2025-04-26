@@ -7,14 +7,21 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
   bool _obscurePassword = true;
 
   @override
   void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -84,7 +91,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           // First name field
                           SizedBox(height: 40),
                           TextField(
-                            controller: _emailController,
+                            controller: _firstNameController,
                             keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
                               hintText: 'First Name',
@@ -114,7 +121,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                           // Last name field
                           TextField(
-                            controller: _emailController,
+                            controller: _lastNameController,
                             keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
                               hintText: 'Last Name',
@@ -219,7 +226,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                           //Confirm password field
                           TextField(
-                            controller: _passwordController,
+                            controller: _confirmPasswordController,
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
                               hintText: 'Confirm Password',

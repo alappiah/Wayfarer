@@ -121,7 +121,7 @@ class _JournalScreenState extends State<JournalApp> {
       ],
     );
   }
-  
+
   // Method to add new entry with photo
   void addNewEntryWithPhoto() {
     // Simulate adding a new entry with photo

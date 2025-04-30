@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import '../models/journal_entry.dart';
+import '../screens/edit_journal_screen.dart';
 
 class JournalEntryCard extends StatelessWidget {
   final JournalEntry entry;
+  final Function(JournalEntry)? onEntryUpdated;
 
-  const JournalEntryCard({Key? key, required this.entry}) : super(key: key);
+  const JournalEntryCard({
+    Key? key, 
+    required this.entry, 
+    this.onEntryUpdated,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -259,8 +265,8 @@ class JournalEntryCard extends StatelessWidget {
                     Row(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.bookmark_outline),
-                          onPressed: () {},
+                          icon: const Icon(Icons.edit),
+                          onPressed: () => _navigateToEditScreen(context),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           iconSize: 20,
@@ -287,6 +293,21 @@ class JournalEntryCard extends StatelessWidget {
     );
   }
 
+  // Navigate to edit screen when edit icon is tapped
+  void _navigateToEditScreen(BuildContext context) async {
+    final result = await Navigator.push<JournalEntry>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditJournalScreen(entry: entry),
+      ),
+    );
+    
+    // Handle the updated entry if it was returned
+    if (result != null && onEntryUpdated != null) {
+      onEntryUpdated!(result);
+    }
+  }
+
   void _showActionSheet(BuildContext context, JournalEntry entry) {
     showModalBottomSheet(
       context: context,
@@ -299,24 +320,16 @@ class JournalEntryCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.photo_camera),
-                title: const Text('Add Photo'),
+                leading: const Icon(Icons.lock),
+                title: const Text('Lock Entry'),
                 onTap: () {
                   Navigator.pop(context);
                   _addPhotoToEntry(context, entry.id);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.mic),
-                title: const Text('Add Voice Recording'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _addVoiceToEntry(context, entry.id);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Edit Entry'),
+                leading: const Icon(Icons.bookmark_outline),
+                title: const Text('Bookmark Entry'),
                 onTap: () {
                   Navigator.pop(context);
                   _editEntryText(context, entry);

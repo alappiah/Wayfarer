@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 
@@ -83,9 +84,12 @@ class LandingPage extends StatelessWidget {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: () {
+                            onPressed: () async {
+                              // Set flag that landing page has been seen
+                              await _markLandingPageAsShown();
+                              
                               // Navigate to the LoginScreen
-                              Navigator.push(
+                              Navigator.pushReplacement(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => LoginScreen(),
@@ -113,9 +117,12 @@ class LandingPage extends StatelessWidget {
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton(
-                            onPressed: () {
+                            onPressed: () async {
+                              // Set flag that landing page has been seen
+                              await _markLandingPageAsShown();
+                              
                               // Navigate to the RegisterScreen
-                              Navigator.push(
+                              Navigator.pushReplacement(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => RegisterScreen(),
@@ -149,5 +156,11 @@ class LandingPage extends StatelessWidget {
         ),
       ),
     );
+  }
+  
+  // Function to mark landing page as shown using SharedPreferences
+  Future<void> _markLandingPageAsShown() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hasSeenLandingPage', true);
   }
 }

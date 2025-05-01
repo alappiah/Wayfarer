@@ -50,67 +50,12 @@ class _JournalAppHomeState extends State<JournalAppHome> {
     "SETTINGS",
   ];
 
-  // Create the screens for each tab
   final List<Widget> _screens = [
     const JournalApp(),
     const BookmarkedScreen(),
     const PrivateScreen(),
     const SettingsScreen(),
   ];
-
-  void _showAddEntryOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Create New Entry',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.image),
-                title: const Text('Add Photo'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Forward the action to the journal screen
-                  if (_currentIndex == 0) {
-                    // Only allow adding entries from the journal tab
-                    // In a real app, you would use a more robust approach
-                    // like a global state management solution
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.mic),
-                title: const Text('Record Audio'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Forward the action to the journal screen
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Write Text Entry'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Forward the action to the journal screen
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,28 +88,6 @@ class _JournalAppHomeState extends State<JournalAppHome> {
         ),
       ),
       body: SafeArea(child: _screens[_currentIndex]),
-      floatingActionButton: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.black,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: IconButton(
-          icon: const Icon(Icons.add, color: Colors.white, size: 28),
-          onPressed: () {
-            // Show modal bottom sheet for creating new entry
-            _showAddEntryOptions(context);
-          },
-        ),
-      ),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.black,
         unselectedItemColor: Colors.black,

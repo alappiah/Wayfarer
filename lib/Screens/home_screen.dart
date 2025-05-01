@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:math';
 import '../models/journal_entry.dart';
 import '../widgets/journal_entry_card.dart';
+import 'add_journal_screen.dart';
 
 class JournalApp extends StatefulWidget {
   const JournalApp({super.key});
@@ -80,49 +81,88 @@ class _JournalScreenState extends State<JournalApp> {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
-        // Welcome text
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 16.0,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Welcome, Percy',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                ),
-                SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-
-        // Journal entries list
-        SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            return Padding(
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          // Welcome text
+          SliverToBoxAdapter(
+            child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: 16.0,
-                vertical: 8.0,
+                vertical: 16.0,
               ),
-              child: JournalEntryCard(entry: _entries[index]),
-            );
-          }, childCount: _entries.length),
-        ),
-      ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Welcome, Percy',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+
+          // Journal entries list
+          SliverList(
+            delegate: SliverChildBuilderDelegate((context, index) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: JournalEntryCard(entry: _entries[index]),
+              );
+            }, childCount: _entries.length),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _navigateToAddJournal(context),
+        backgroundColor: Colors.black,
+        elevation: 4,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
     );
   }
 
-  // Method to add new entry with photo
+  // Navigate to add journal screen and handle the result
+  void _navigateToAddJournal(BuildContext context) async {
+    // Create a new empty journal entry to pass to the add screen
+    // final newEntry = JournalEntry(
+    //   id: DateTime.now().millisecondsSinceEpoch.toString(),
+    //   imageUrl: '',
+    //   title: '',
+    //   description: '',
+    //   date: DateTime.now(),
+    // );
+    
+    // Navigate to the add journal screen and await result
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AddJournalScreen(),
+      ),
+    );
+    
+    // If we got a result back (saved entry), add it to our entries list
+    if (result != null && result is JournalEntry) {
+      setState(() {
+        _entries.insert(0, result);
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Journal entry added'))
+      );
+    }
+  }
+
+  // Method to add new entry with photo (keeping these methods for your reference)
   void addNewEntryWithPhoto() {
     // Simulate adding a new entry with photo
     final random = Random();

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'register_screen.dart';
+// import 'home_screen.dart';
+import '../main.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -10,12 +13,113 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isLoading = false;
+  String _errorMessage = '';
+
+  // Firebase auth instance
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  // Function to validate form
+  bool _validateForm() {
+    setState(() {
+      _errorMessage = '';
+    });
+
+    // Check if email and password fields are not empty
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter both email and password';
+      });
+      return false;
+    }
+
+    // Validate email format
+    bool emailValid = RegExp(
+      r'^[^@]+@[^@]+\.[^@]+',
+    ).hasMatch(_emailController.text.trim());
+    if (!emailValid) {
+      setState(() {
+        _errorMessage = 'Please enter a valid email address';
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  // Function to handle login
+  Future<void> _login() async {
+    if (!_validateForm()) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      // Sign in with email and password
+      await _auth.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      // If successful, navigate to home screen
+      if (mounted) {
+        // Navigate to home screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => JournalAppHome()),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      // For security reasons, we don't reveal whether the email or password is incorrect
+      String message = 'Incorrect email or password';
+
+      print('Firebase Auth Error: ${e.code}');
+
+      // Different error handling based on error code
+      if (e.code == 'user-not-found' ||
+          e.code == 'wrong-password' ||
+          e.code == 'invalid-email') {
+        // Keep the generic message for these cases
+      } else if (e.code == 'user-disabled') {
+        message = 'This account has been disabled';
+      } else if (e.code == 'too-many-requests') {
+        message = 'Too many failed attempts. Please try again later';
+      } else if (e.code == 'network-request-failed') {
+        message = 'Network error. Please check your connection';
+      }
+
+      if (mounted) {
+        setState(() {
+          _errorMessage = message;
+        });
+      }
+    } catch (e) {
+      print('Login error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'An error occurred. Please try again later.';
+        });
+      }
+    } finally {
+      // Always reset loading state, even if there's an error
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -157,12 +261,30 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
 
+                          // Error message display
+                          if (_errorMessage.isNotEmpty)
+                            Container(
+                              margin: EdgeInsets.only(top: 16),
+                              padding: EdgeInsets.all(10),
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Text(
+                                _errorMessage,
+                                style: TextStyle(color: Colors.red[700]),
+                              ),
+                            ),
+
                           // Forgot password link
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: () {
                                 // Handle forgot password
+                                // You can implement this functionality in the future
                               },
                               child: Text(
                                 'Forgot Password?',
@@ -183,16 +305,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Log in button
                           ElevatedButton(
-                            onPressed: () {
-                              // Handle login logic
-                            },
-                            child: Text(
-                              'LOG IN',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            onPressed: _isLoading ? null : _login,
+                            child:
+                                _isLoading
+                                    ? SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : Text(
+                                      'LOG IN',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Color(0xFF001A33),
                               foregroundColor: Colors.white,
@@ -201,6 +331,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               minimumSize: Size(double.infinity, 48),
+                              disabledBackgroundColor: Color(
+                                0xFF001A33,
+                              ).withOpacity(0.7),
                             ),
                           ),
 

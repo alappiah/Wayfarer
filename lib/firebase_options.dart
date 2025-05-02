@@ -3,6 +3,7 @@
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
@@ -49,17 +50,17 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCRy5aD6SHUjpqRZAX-K8Oqx6AYxmW1pXM',
-    appId: '1:894018133703:android:a8909a78d28a16fbd468e2',
+  static final FirebaseOptions android = FirebaseOptions(
+    apiKey: dotenv.env['GOOGLE_API_KEY_ANDROID']!,
+    appId: dotenv.env['GOOGLE_API_KEY_ANDROID_ID']!,
     messagingSenderId: '894018133703',
     projectId: 'wayfarer-project',
     storageBucket: 'wayfarer-project.firebasestorage.app',
   );
 
-  static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: '***REMOVED***',
-    appId: '1:894018133703:ios:841b16522c1efa78d468e2',
+  static final FirebaseOptions ios = FirebaseOptions(
+    apiKey: dotenv.env['GOOGLE_API_KEY_IOS']!,
+    appId: dotenv.env['GOOGLE_API_KEY_IOS_ID']!,
     messagingSenderId: '894018133703',
     projectId: 'wayfarer-project',
     storageBucket: 'wayfarer-project.firebasestorage.app',

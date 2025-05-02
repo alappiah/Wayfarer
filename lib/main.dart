@@ -13,10 +13,11 @@ import 'firebase_options.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); 
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load();
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-   await dotenv.load();
-  
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -37,7 +38,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _isLoading = true;
   bool _hasSeenLandingPage = false;
-  
+
   @override
   void initState() {
     super.initState();
@@ -63,18 +64,12 @@ class _MyAppState extends State<MyApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: _isLoading
-          ? _buildLoadingScreen()
-          : _getInitialScreen(),
+      home: _isLoading ? _buildLoadingScreen() : _getInitialScreen(),
     );
   }
 
   Widget _buildLoadingScreen() {
-    return Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    return Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 
   Widget _getInitialScreen() {
@@ -82,7 +77,7 @@ class _MyAppState extends State<MyApp> {
     if (!_hasSeenLandingPage) {
       return LandingPage();
     }
-    
+
     // If user has seen landing page, check Firebase auth
     return FirebaseAuth.instance.currentUser == null
         ? LoginScreen()

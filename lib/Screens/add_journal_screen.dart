@@ -2,16 +2,20 @@ import 'package:flutter/material.dart';
 import '../models/journal_entry.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-// import 'package:camera/camera.dart';
 import 'dart:io'; // For accessing keyboard events
 import 'package:permission_handler/permission_handler.dart';
-// import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'audio_recording_screen.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import '../widgets/MapLocationPicker.dart';
 import '../widgets/LocationSearchDialog.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+// import 'package:cloudinary_public/cloudinary_public.dart';
+import 'dart:convert';
+import 'package:path/path.dart' as path;
+import 'package:http/http.dart' as http;
 
 class AddJournalScreen extends StatefulWidget {
   const AddJournalScreen({Key? key}) : super(key: key);
@@ -533,12 +537,23 @@ class _AddJournalScreenState extends State<AddJournalScreen>
           );
           break;
         case ActivityType.location:
+          // Format the location name if it's not already in "City, Country" format
+          String formattedLocation = locationName ?? 'Unknown Location';
+
+          // If locationName contains city and country information but not in the desired format
+          // you could format it here, but your code already formats it correctly as:
+          // '${placemarks[0].locality}, ${placemarks[0].country}'
+
           _activityTrackers.add(
             ActivityTracker(
-              type: ActivityType.location,
-              value: 'Current Location',
+              type: type,
+              value:
+                  formattedLocation, // Use the formatted location as the value
               icon: Icons.location_on,
               label: 'Location',
+              locationName: formattedLocation,
+              latitude: latitude,
+              longitude: longitude,
             ),
           );
           break;
@@ -1210,48 +1225,239 @@ class _AddJournalScreenState extends State<AddJournalScreen>
     );
   }
 
-  void _saveJournal() {
-    // Extract images from media items
-    List<String> images = [];
-    List<AudioRecording> audioRecordings = [];
+  Future<void> _saveJournal() async {
+    try {
+      // Show loading indicator
+      _showLoadingDialog();
 
-    for (var item in _mediaItems) {
-      if (item.type == MediaType.image && item.url != null) {
-        images.add(item.url!);
-      } else if (item.type == MediaType.audio && item.audioRecording != null) {
-        audioRecordings.add(item.audioRecording!);
+      // Cloudinary credentials
+      const cloudName = 'dgg2rcnqc';
+      const uploadPreset = 'ml_default';
+
+      // Lists for storing uploaded media URLs
+      List<String> imageUrls = [];
+      List<Map<String, dynamic>> audioRecordingsData = [];
+
+      // 1. UPLOAD IMAGES TO CLOUDINARY
+      for (var item in _mediaItems) {
+        if (item.type == MediaType.image && item.url != null) {
+          try {
+            // If it's a local file path
+            if (item.url!.startsWith('file://') ||
+                !item.url!.startsWith('http')) {
+              final secureUrl = await _uploadToCloudinary(
+                item.url!,
+                cloudName,
+                uploadPreset,
+                'image',
+              );
+
+              if (secureUrl.isNotEmpty) {
+                imageUrls.add(secureUrl);
+                print('Image uploaded successfully: $secureUrl');
+              }
+            } else {
+              // Already a remote URL, just add it
+              imageUrls.add(item.url!);
+            }
+          } catch (e) {
+            print('Error uploading image: $e');
+            // Continue with the next image if one fails
+          }
+        }
       }
+
+      // 2. UPLOAD AUDIO RECORDINGS TO CLOUDINARY
+      for (var item in _mediaItems) {
+        if (item.type == MediaType.audio && item.url != null) {
+          try {
+            final secureUrl = await _uploadToCloudinary(
+              item.url!,
+              cloudName,
+              uploadPreset,
+              'auto', // Use 'auto' resource type for audio
+            );
+
+            if (secureUrl.isNotEmpty) {
+              // Store audio data
+              audioRecordingsData.add({
+                'url': secureUrl,
+                'duration': item.audioRecording?.duration ?? '00:00',
+                'fileName': path.basename(item.url ?? 'audio_recording.m4a'),
+              });
+              print('Audio uploaded successfully: $secureUrl');
+            }
+          } catch (e) {
+            print('Error uploading audio: $e');
+            // Continue with the next audio if one fails
+          }
+        }
+      }
+
+      // 3. PREPARE LOCATION DATA IF AVAILABLE
+      List<Map<String, dynamic>> locationDataList = [];
+      for (var tracker in _activityTrackers) {
+        if (tracker.type == ActivityType.location &&
+            tracker.latitude != null &&
+            tracker.longitude != null) {
+          locationDataList.add({
+            'latitude': tracker.latitude!,
+            'longitude': tracker.longitude!,
+            'placeName': tracker.locationName ?? 'Unknown location',
+            'timestamp': Timestamp.now(),
+          });
+        }
+      }
+
+      // 4. CREATE JOURNAL ENTRY DATA STRUCTURE
+      String mainImage = imageUrls.isNotEmpty ? imageUrls[0] : '';
+      List<String> additionalImages =
+          imageUrls.length > 1 ? imageUrls.sublist(1) : [];
+
+      // Get current user ID
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Entry ID based on timestamp
+      final entryId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      // Create journal entry data map
+      final journalData = {
+        'id': entryId,
+        'userId': userId,
+        'title': _titleController.text,
+        'description': _descriptionController.text,
+        'imageUrl': mainImage,
+        'additionalImages': additionalImages,
+        'audioRecordings': audioRecordingsData,
+        'locations': locationDataList,
+        'date': Timestamp.now(),
+        'createdAt': Timestamp.now(),
+        'hasLocationData': locationDataList.isNotEmpty,
+      };
+
+      print("Saving journal data to Firestore...");
+
+      // 5. SAVE TO FIRESTORE
+      await FirebaseFirestore.instance
+          .collection('journals')
+          .doc(entryId)
+          .set(journalData);
+
+      print("Journal saved successfully!");
+
+      // 6. CREATE LOCAL JOURNAL ENTRY OBJECT
+      final newEntry = JournalEntry(
+        id: entryId,
+        imageUrl: mainImage,
+        additionalImages: additionalImages,
+        title: _titleController.text,
+        description: _descriptionController.text,
+        date: DateTime.now(),
+        hasLocationData: locationDataList.isNotEmpty,
+        audioRecordings:
+            _mediaItems.any(
+                  (item) =>
+                      item.type == MediaType.audio &&
+                      item.audioRecording != null,
+                )
+                ? [
+                  for (var item in _mediaItems)
+                    if (item.type == MediaType.audio &&
+                        item.audioRecording != null)
+                      item.audioRecording!,
+                ]
+                : null,
+      );
+
+      // Hide loading indicator
+      Navigator.of(context).pop();
+
+      // Return new entry to previous screen
+      Navigator.of(context).pop(newEntry);
+
+      // Show confirmation
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Journal entry saved successfully')),
+      );
+    } catch (e) {
+      print('Error saving journal: $e');
+
+      // Hide loading indicator if showing
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving journal: ${e.toString()}')),
+      );
+    }
+  }
+
+  // Generic upload function for both images and audio
+  Future<String> _uploadToCloudinary(
+    String filePath,
+    String cloudName,
+    String uploadPreset,
+    String resourceType,
+  ) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      print('File does not exist: $filePath');
+      return '';
     }
 
-    String mainImage = images.isNotEmpty ? images[0] : '';
-    List<String> additionalImages = images.length > 1 ? images.sublist(1) : [];
-
-    // Check if we have location data
-    bool hasLocationData = _activityTrackers.any(
-      (tracker) => tracker.type == ActivityType.location,
+    final url = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$cloudName/$resourceType/upload',
     );
 
-    // Create new journal entry
-    final newEntry = JournalEntry(
-      id:
-          DateTime.now().millisecondsSinceEpoch
-              .toString(), // Generate a unique ID
-      imageUrl: mainImage,
-      additionalImages: additionalImages,
-      title: _titleController.text,
-      description: _descriptionController.text,
-      date: DateTime.now(),
-      hasLocationData: hasLocationData,
-      audioRecordings: audioRecordings.isNotEmpty ? audioRecordings : null,
+    final request =
+        http.MultipartRequest('POST', url)
+          ..fields['upload_preset'] = uploadPreset
+          ..fields['folder'] =
+              resourceType == 'image' ? 'journal_images' : 'journal_audio'
+          ..files.add(await http.MultipartFile.fromPath('file', file.path));
+
+    print('Uploading file to Cloudinary: $filePath');
+    final response = await request.send();
+
+    if (response.statusCode != 200) {
+      final errorBody = await response.stream.bytesToString();
+      print('Upload failed with status ${response.statusCode}: $errorBody');
+      throw Exception(
+        'Failed to upload file to Cloudinary: ${response.statusCode}',
+      );
+    }
+
+    final resStr = await response.stream.bytesToString();
+    final responseJson = jsonDecode(resStr);
+    return responseJson['secure_url'];
+  }
+
+  // Helper method to show loading dialog
+  void _showLoadingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text("Saving journal entry..."),
+              ],
+            ),
+          ),
+        );
+      },
     );
-
-    // Return new entry to previous screen
-    Navigator.of(context).pop(newEntry);
-
-    // Show confirmation
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Journal entry saved')));
   }
 }
 
@@ -1283,6 +1489,9 @@ class ActivityTracker {
   final IconData icon;
   final String label;
   final bool isWaveform;
+  final String? locationName;
+  final double? latitude;
+  final double? longitude;
 
   ActivityTracker({
     required this.type,
@@ -1290,5 +1499,46 @@ class ActivityTracker {
     required this.icon,
     required this.label,
     this.isWaveform = false,
+    this.locationName, // Add this parameter
+    this.latitude, // Add this parameter
+    this.longitude,
   });
+
+  String? get locationDetails {
+    if (locationName == null || locationName!.isEmpty) {
+      return null;
+    }
+
+    return locationName;
+  }
+
+  // Add a helper method to get the display name (city)
+  String get displayLocation {
+    if (locationName == null || locationName!.isEmpty) {
+      return value;
+    }
+
+    // Parse the location name - expect format like "City, Country"
+    final parts = locationName!.split(',');
+    if (parts.length >= 2) {
+      return parts[0].trim(); // Return just the city
+    }
+
+    return locationName!;
+  }
+
+  // Add a helper method to get the country
+  String? get country {
+    if (locationName == null || locationName!.isEmpty) {
+      return null;
+    }
+
+    // Parse the location name - expect format like "City, Country"
+    final parts = locationName!.split(',');
+    if (parts.length >= 2) {
+      return parts.last.trim(); // Return just the country
+    }
+
+    return null;
+  }
 }

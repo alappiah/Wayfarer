@@ -25,11 +25,16 @@ class AudioRecording {
   final String duration; // Format: "MM:SS"
   final DateTime recordedAt;
   final String? title;
+  final String? url; // Add this
+
+  final String? locationName; // Add this field
 
   AudioRecording({
     required this.id,
     required this.duration,
     required this.recordedAt,
     this.title,
+    this.url,
+    this.locationName,
   });
 }

@@ -28,7 +28,8 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
                 Navigator.pop(context, {
                   'latitude': _selectedLocation!.latitude,
                   'longitude': _selectedLocation!.longitude,
-                  'address': _address.isNotEmpty ? _address : 'Selected Location',
+                  'address':
+                      _address.isNotEmpty ? _address : 'Unknown Location',
                 });
               },
             ),
@@ -45,7 +46,8 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                 subdomains: ['a', 'b', 'c'],
               ),
               if (_selectedLocation != null)
@@ -65,10 +67,7 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
                 ),
             ],
           ),
-          if (_isLoading)
-            Center(
-              child: CircularProgressIndicator(),
-            ),
+          if (_isLoading) Center(child: CircularProgressIndicator()),
           Positioned(
             bottom: 16,
             left: 16,
@@ -85,11 +84,13 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 4),
-                    Text(_address.isNotEmpty
-                        ? _address
-                        : _selectedLocation != null
-                            ? 'Lat: ${_selectedLocation!.latitude.toStringAsFixed(4)}, Lng: ${_selectedLocation!.longitude.toStringAsFixed(4)}'
-                            : 'Tap on the map to select a location'),
+                    Text(
+                      _address.isNotEmpty
+                          ? _address
+                          : _selectedLocation != null
+                          ? 'Lat: ${_selectedLocation!.latitude.toStringAsFixed(4)}, Lng: ${_selectedLocation!.longitude.toStringAsFixed(4)}'
+                          : 'Tap on the map to select a location',
+                    ),
                   ],
                 ),
               ),
@@ -119,14 +120,17 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
 
       if (placemarks.isNotEmpty) {
         final place = placemarks.first;
+
+        // Format address consistently as "City, Country"
+        final city =
+            place.locality ??
+            place.subAdministrativeArea ??
+            place.administrativeArea ??
+            'Unknown';
+        final country = place.country ?? 'Unknown';
+
         setState(() {
-          _address = [
-            place.name,
-            place.thoroughfare,
-            place.locality,
-            place.administrativeArea,
-            place.country,
-          ].where((element) => element != null && element.isNotEmpty).join(', ');
+          _address = '$city, $country';
         });
       }
     } catch (e) {
@@ -149,13 +153,13 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
     try {
       final position = await Geolocator.getCurrentPosition();
       final latLng = LatLng(position.latitude, position.longitude);
-      
+
       _mapController.move(latLng, 15);
       _selectLocation(latLng);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error getting current location')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error getting current location')));
       setState(() {
         _isLoading = false;
       });

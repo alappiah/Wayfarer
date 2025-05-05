@@ -9,6 +9,7 @@ class JournalEntryCard extends StatelessWidget {
   final Function(JournalEntry)? onEntryUpdated;
   final Function()? onEditTap;
   final Function(JournalEntry)? onLockToggle;
+  final Function(JournalEntry)? onDelete;
 
   const JournalEntryCard({
     Key? key,
@@ -16,6 +17,7 @@ class JournalEntryCard extends StatelessWidget {
     this.onEntryUpdated,
     this.onEditTap,
     this.onLockToggle,
+    this.onDelete,
   }) : super(key: key);
 
   @override
@@ -355,15 +357,15 @@ class JournalEntryCard extends StatelessWidget {
       bool authenticated = await authService.authenticate(
         reason: 'Authenticate to edit this locked journal entry',
       );
-      
+
       if (!authenticated) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Authentication failed')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
         return; // Stop if authentication fails
       }
     }
-    
+
     // If not locked or successfully authenticated, proceed to edit screen
     _navigateToEditScreen(context);
   }
@@ -373,14 +375,15 @@ class JournalEntryCard extends StatelessWidget {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditJournalScreen(
-          entry: entry,
-          onEntryUpdated: (JournalEntry updatedEntry) {
-            if (onEntryUpdated != null) {
-              onEntryUpdated!(updatedEntry);
-            }
-          },
-        ),
+        builder:
+            (context) => EditJournalScreen(
+              entry: entry,
+              onEntryUpdated: (JournalEntry updatedEntry) {
+                if (onEntryUpdated != null) {
+                  onEntryUpdated!(updatedEntry);
+                }
+              },
+            ),
       ),
     );
     // No need to handle the result as the Firestore stream will catch changes
@@ -397,6 +400,7 @@ class JournalEntryCard extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Lock toggle and bookmark options remain the same
               ListTile(
                 leading: Icon(
                   entry.isLocked ? Icons.lock_open : Icons.lock,
@@ -405,7 +409,6 @@ class JournalEntryCard extends StatelessWidget {
                 title: Text(entry.isLocked ? 'Unlock Entry' : 'Lock Entry'),
                 onTap: () {
                   Navigator.pop(context);
-                  // Call the onLockToggle callback if provided, otherwise fall back to internal _toggleLock
                   if (onLockToggle != null) {
                     onLockToggle!(entry);
                   } else {
@@ -426,6 +429,7 @@ class JournalEntryCard extends StatelessWidget {
                   _toggleBookmark(context, entry);
                 },
               ),
+              // Update the delete option to use our new delete function
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text(
@@ -434,10 +438,7 @@ class JournalEntryCard extends StatelessWidget {
                 ),
                 onTap: () {
                   Navigator.pop(context);
-                  // Show confirmation dialog
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Delete entry ${entry.id}?')),
-                  );
+                  _showDeleteConfirmation(context, entry);
                 },
               ),
             ],
@@ -447,59 +448,129 @@ class JournalEntryCard extends StatelessWidget {
     );
   }
 
-  // Toggle the locked status of an entry
+  void _showDeleteConfirmation(BuildContext context, JournalEntry entry) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Journal Entry'),
+          content: Text(
+            'Are you sure you want to delete "${entry.title}"? This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _deleteEntry(context, entry);
+              },
+              child: const Text('DELETE', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteEntry(BuildContext context, JournalEntry entry) async {
+    try {
+      // If entry is locked, authenticate before deleting
+      if (entry.isLocked) {
+        final LocalAuthService authService = LocalAuthService();
+        bool authenticated = await authService.authenticate(
+          reason: 'Authenticate to delete this locked journal entry',
+        );
+
+        if (!authenticated) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Authentication failed')),
+          );
+          return; // Stop if authentication fails
+        }
+      }
+
+      // Delete associated media files if needed
+      // This would be implemented in a real app to clean up storage
+      // await _deleteAssociatedMedia(entry);
+
+      // Delete the document from Firestore
+      await FirebaseFirestore.instance
+          .collection('journals')
+          .doc(entry.id)
+          .delete();
+
+      // Call the onDelete callback if provided
+      if (onDelete != null) {
+        onDelete!(entry);
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Journal entry deleted')));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting entry: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Toggle the locked status of an entry - MODIFIED to require authentication for both locking and unlocking
   void _toggleLock(BuildContext context, JournalEntry entry) async {
     final LocalAuthService authService = LocalAuthService();
 
-    // If we're locking the entry, we don't need authentication
-    // But if we're unlocking, we need to verify user identity
-    bool proceed = !entry.isLocked;
+    // We need authentication in both cases now - locking and unlocking
+    String authReason =
+        entry.isLocked
+            ? 'Authenticate to unlock this journal entry'
+            : 'Authenticate to lock this journal entry';
 
-    if (entry.isLocked) {
-      // Try to authenticate before unlocking
-      proceed = await authService.authenticate(
-        reason: 'Authenticate to unlock this journal entry',
-      );
+    bool authenticated = await authService.authenticate(reason: authReason);
 
-      if (!proceed) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
-        return;
-      }
+    if (!authenticated) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
+      return;
     }
 
-    if (proceed) {
-      // Create updated entry with toggled lock status
-      final updatedEntry = entry.copyWith(isLocked: !entry.isLocked);
+    // Create updated entry with toggled lock status
+    final updatedEntry = entry.copyWith(isLocked: !entry.isLocked);
 
-      try {
-        // Update in Firestore
-        await FirebaseFirestore.instance
-            .collection('journals')
-            .doc(entry.id)
-            .update({'isLocked': updatedEntry.isLocked});
+    try {
+      // Update in Firestore
+      await FirebaseFirestore.instance
+          .collection('journals')
+          .doc(entry.id)
+          .update({'isLocked': updatedEntry.isLocked});
 
-        // Call the callback if provided
-        if (onEntryUpdated != null) {
-          onEntryUpdated!(updatedEntry);
-        }
-
-        // If we just unlocked an entry, show success message
-        // The lock message will be shown by the parent screen that handles removal
-        if (!updatedEntry.isLocked) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Entry unlocked')));
-        }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating entry lock status: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      // Call the callback if provided
+      if (onEntryUpdated != null) {
+        onEntryUpdated!(updatedEntry);
       }
+
+      // Show success message for both locking and unlocking
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            updatedEntry.isLocked
+                ? 'Entry locked successfully'
+                : 'Entry unlocked successfully',
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating entry lock status: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 

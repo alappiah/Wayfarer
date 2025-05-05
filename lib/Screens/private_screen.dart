@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/journal_entry.dart';
 import '../widgets/journal_entry_card.dart';
 import '../services/local_auth_service.dart';
@@ -19,6 +20,8 @@ class _PrivateScreenState extends State<PrivateScreen> {
   final LocalAuthService _authService = LocalAuthService();
   // Stream for listening to journal entries from Firestore
   Stream<QuerySnapshot>? _entriesStream;
+  // Get the current user ID
+  final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
   void initState() {
@@ -27,6 +30,15 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   Future<void> _initializeScreen() async {
+    // Ensure we have a valid user ID
+    if (_currentUserId.isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "You must be logged in to view private entries.";
+      });
+      return;
+    }
+
     // Check if biometric authentication is available
     final bool isAvailable = await _authService.isBiometricAvailable();
 
@@ -80,10 +92,11 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   void _setupEntriesStream() {
-    // Initialize the stream for locked entries
+    // Initialize the stream for locked entries, filtering by current user ID
     _entriesStream =
         FirebaseFirestore.instance
             .collection('journals')
+            .where('userId', isEqualTo: _currentUserId)
             .where('isLocked', isEqualTo: true)
             .orderBy('date', descending: true)
             .snapshots();
@@ -152,25 +165,45 @@ class _PrivateScreenState extends State<PrivateScreen> {
 
   // Handle entry updates from any screen
   void _handleEntryUpdated(JournalEntry updatedEntry) {
-    setState(() {
-      // If the entry is no longer locked, remove it from our list
-      if (!updatedEntry.isLocked) {
-        _lockedEntries.removeWhere((entry) => entry.id == updatedEntry.id);
-      } else {
-        // Find the entry in our list and update it
-        final index = _lockedEntries.indexWhere(
-          (entry) => entry.id == updatedEntry.id,
-        );
-        if (index >= 0) {
-          _lockedEntries[index] = updatedEntry;
-        } else {
-          // New locked entry - add it
-          _lockedEntries.add(updatedEntry);
-          // Sort by date descending
-          _lockedEntries.sort((a, b) => b.date.compareTo(a.date));
-        }
-      }
-    });
+    // Check if the entry belongs to the current user by querying Firestore
+    FirebaseFirestore.instance
+        .collection('journals')
+        .doc(updatedEntry.id)
+        .get()
+        .then((docSnapshot) {
+          if (docSnapshot.exists) {
+            final data = docSnapshot.data() as Map<String, dynamic>;
+            final entryUserId = data['userId'] as String?;
+
+            // Only proceed if this entry belongs to the current user
+            if (entryUserId == _currentUserId) {
+              setState(() {
+                // If the entry is no longer locked, remove it from our list
+                if (!updatedEntry.isLocked) {
+                  _lockedEntries.removeWhere(
+                    (entry) => entry.id == updatedEntry.id,
+                  );
+                } else {
+                  // Find the entry in our list and update it
+                  final index = _lockedEntries.indexWhere(
+                    (entry) => entry.id == updatedEntry.id,
+                  );
+                  if (index >= 0) {
+                    _lockedEntries[index] = updatedEntry;
+                  } else {
+                    // New locked entry - add it
+                    _lockedEntries.add(updatedEntry);
+                    // Sort by date descending
+                    _lockedEntries.sort((a, b) => b.date.compareTo(a.date));
+                  }
+                }
+              });
+            }
+          }
+        })
+        .catchError((error) {
+          debugPrint("Error checking entry ownership: $error");
+        });
   }
 
   // Helper method to update lock status in Firestore
@@ -179,11 +212,37 @@ class _PrivateScreenState extends State<PrivateScreen> {
     JournalEntry entry,
     bool lockStatus,
   ) async {
+    // Check if the entry belongs to the current user
+    final docRef = FirebaseFirestore.instance
+        .collection('journals')
+        .doc(entry.id);
+    final docSnapshot = await docRef.get();
+
+    if (!docSnapshot.exists) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Entry not found'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final data = docSnapshot.data() as Map<String, dynamic>;
+    final entryUserId = data['userId'] as String?;
+
+    if (entryUserId != _currentUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You can only modify your own entries'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     try {
-      await FirebaseFirestore.instance
-          .collection('journals')
-          .doc(entry.id)
-          .update({'isLocked': lockStatus});
+      await docRef.update({'isLocked': lockStatus});
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(lockStatus ? 'Entry locked' : 'Entry unlocked')),
@@ -202,22 +261,21 @@ class _PrivateScreenState extends State<PrivateScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Private Entries'),
         foregroundColor: Colors.black,
         actions: [
-          if (_isAuthenticated)
-            IconButton(
-              icon: const Icon(Icons.lock_open),
-              onPressed: () {
-                // Log out of private section
-                setState(() {
-                  _isAuthenticated = false;
-                  _lockedEntries = [];
-                  _entriesStream = null;
-                });
-              },
-              tooltip: 'Lock private section',
-            ),
+          // if (_isAuthenticated)
+          //   IconButton(
+          //     icon: const Icon(Icons.lock_open),
+          //     onPressed: () {
+          //       // Log out of private section
+          //       setState(() {
+          //         _isAuthenticated = false;
+          //         _lockedEntries = [];
+          //         _entriesStream = null;
+          //       });
+          //     },
+          //     tooltip: 'Lock private section',
+          //   ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -236,6 +294,46 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   Widget _buildBody() {
+    // Check if user is logged in first
+    if (_currentUserId.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.account_circle, size: 80, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              "Not Logged In",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "You must be logged in to view private entries",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              child: const Text("Go to Login"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+              ),
+              onPressed: () {
+                // Navigate to login screen
+                // Navigator.of(context).pushReplacementNamed('/login');
+                // or show login dialog, etc.
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
     // If loading, show progress indicator
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -348,14 +446,14 @@ class _PrivateScreenState extends State<PrivateScreen> {
             ),
             const SizedBox(height: 16),
             // Debug button to show raw data
-            ElevatedButton(
-              onPressed: _showDatabaseDebugInfo,
-              child: const Text("Debug Database"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey,
-                foregroundColor: Colors.white,
-              ),
-            ),
+            // ElevatedButton(
+            //   onPressed: _showDatabaseDebugInfo,
+            //   child: const Text("Debug Database"),
+            //   style: ElevatedButton.styleFrom(
+            //     backgroundColor: Colors.grey,
+            //     foregroundColor: Colors.white,
+            //   ),
+            // ),
           ],
         ),
       );
@@ -386,18 +484,6 @@ class _PrivateScreenState extends State<PrivateScreen> {
             },
           ),
         ),
-        // Debug button at the bottom
-        // Padding(
-        //   padding: const EdgeInsets.all(8.0),
-        //   child: ElevatedButton(
-        //     onPressed: _showDatabaseDebugInfo,
-        //     child: const Text("Check Database"),
-        //     style: ElevatedButton.styleFrom(
-        //       backgroundColor: Colors.grey[300],
-        //       foregroundColor: Colors.black87,
-        //     ),
-        //   ),
-        // ),
       ],
     );
   }
@@ -405,23 +491,27 @@ class _PrivateScreenState extends State<PrivateScreen> {
   // Enhanced debug method to check raw database data
   Future<void> _showDatabaseDebugInfo() async {
     try {
-      final QuerySnapshot allLockedSnapshot =
+      // Get only the current user's locked entries
+      final QuerySnapshot userLockedSnapshot =
           await FirebaseFirestore.instance
               .collection('journals')
+              .where('userId', isEqualTo: _currentUserId)
               .where('isLocked', isEqualTo: true)
               .get();
 
-      final QuerySnapshot allEntriesSnapshot =
+      // Get sample of current user's entries
+      final QuerySnapshot userEntriesSnapshot =
           await FirebaseFirestore.instance
               .collection('journals')
+              .where('userId', isEqualTo: _currentUserId)
               .limit(30)
               .get();
 
-      int totalLockedCount = allLockedSnapshot.docs.length;
+      int totalLockedCount = userLockedSnapshot.docs.length;
       int displayedCount = _lockedEntries.length;
       List<String> entriesInfo = [];
 
-      for (var doc in allEntriesSnapshot.docs) {
+      for (var doc in userEntriesSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final isLocked = data['isLocked'] == true;
         final date =
@@ -442,10 +532,11 @@ class _PrivateScreenState extends State<PrivateScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Total locked entries in database: $totalLockedCount'),
+                    Text('User ID: $_currentUserId'),
+                    Text('Total locked entries for user: $totalLockedCount'),
                     Text('Currently displayed locked entries: $displayedCount'),
                     const SizedBox(height: 16),
-                    const Text('Sample of recent entries (max 30):'),
+                    const Text('Sample of your recent entries (max 30):'),
                     const SizedBox(height: 8),
                     ...entriesInfo.map(
                       (info) => Padding(

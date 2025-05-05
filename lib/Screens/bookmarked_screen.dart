@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:wayfarer/Screens/edit_journal_screen.dart';
 import '../models/journal_entry.dart';
 import '../widgets/journal_entry_card.dart';
 import '../services/local_auth_service.dart';
+import '../services/journal_security_service.dart'; // Import the security service
 
 class BookmarkedScreen extends StatefulWidget {
   const BookmarkedScreen({super.key});
@@ -18,6 +20,7 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
   late Stream<QuerySnapshot> _entriesStream;
   List<JournalEntry> _entries = [];
   bool _isLoading = true;
+  final JournalSecurityService _securityService = JournalSecurityService();
 
   @override
   bool get wantKeepAlive => true; // Keep state when switching tabs
@@ -31,12 +34,30 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
 
   // Initialize stream to get bookmarked entries
   void _initializeStream() {
-    _entriesStream =
-        FirebaseFirestore.instance
-            .collection('journals')
-            .where('isBookmarked', isEqualTo: true)
-            .orderBy('date', descending: true)
-            .snapshots();
+    // Get current user ID
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (userId == null) {
+      // Handle case when no user is logged in
+      setState(() {
+        _entries = [];
+        _isLoading = false;
+      });
+      return;
+    }
+
+    // Use the security service query and add bookmark filter
+    Query<Map<String, dynamic>> query = _securityService
+        .getJournalsQuery(
+          includeLockedEntries: true, // Show both locked and unlocked entries
+        )
+        .where('isBookmarked', isEqualTo: true);
+
+    // Add ordering
+    query = query.orderBy('date', descending: true);
+
+    // Update the stream
+    _entriesStream = query.snapshots();
 
     // Load initial entries
     _loadJournalEntries();
@@ -225,14 +246,14 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
                       entry: entry,
                       onEntryUpdated: _handleEntryUpdated,
                       onEditTap: () async {
-                        // Handle authentication for locked entries
-                        if (entry.isLocked) {
-                          bool authenticated =
-                              await _authenticateForLockedEntry(context);
-                          if (!authenticated) return;
-                        }
+                        // Use security service to check if user can access this entry
+                        bool canAccess = await _securityService.canAccessEntry(
+                          entry,
+                          context,
+                        );
+                        if (!canAccess) return;
 
-                        // If not locked or successfully authenticated, navigate to edit screen
+                        // If successfully authenticated, navigate to edit screen
                         if (context.mounted) {
                           final result = await Navigator.push(
                             context,
@@ -250,18 +271,17 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
                         }
                       },
                       onLockToggle: (entry) async {
-                        // Handle lock toggling with proper authentication
-                        if (entry.isLocked) {
-                          // Need to authenticate to unlock
-                          bool authenticated =
-                              await _authenticateForLockedEntry(context);
-                          if (!authenticated) return;
-
-                          // Update in Firestore if authenticated
-                          await _updateEntryLockStatus(context, entry, false);
-                        } else {
-                          // No authentication needed to lock
-                          await _updateEntryLockStatus(context, entry, true);
+                        // Use the security service to handle lock toggle
+                        final success = await _securityService.toggleLock(
+                          entry,
+                          context,
+                        );
+                        if (success) {
+                          // Update the entry in memory after successful toggle
+                          final updatedEntry = entry.copyWith(
+                            isLocked: !entry.isLocked,
+                          );
+                          _handleEntryUpdated(updatedEntry);
                         }
                       },
                     );
@@ -269,30 +289,5 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
                 ),
               ),
     );
-  }
-
-  // Helper method to update lock status in Firestore
-  Future<void> _updateEntryLockStatus(
-    BuildContext context,
-    JournalEntry entry,
-    bool lockStatus,
-  ) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('journals')
-          .doc(entry.id)
-          .update({'isLocked': lockStatus});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(lockStatus ? 'Entry locked' : 'Entry unlocked')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating lock status: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }

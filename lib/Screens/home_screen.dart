@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/journal_entry.dart';
@@ -21,12 +22,69 @@ class _JournalScreenState extends State<JournalApp> {
   bool _includeLockedEntries = true; // Whether to show locked entries
   final JournalSecurityService _securityService = JournalSecurityService();
 
+  String firstName = 'User';
+
   @override
   void initState() {
     super.initState();
 
     // Initialize app
     _initializeApp();
+
+    _getUserFirstName();
+
+    // final user = FirebaseAuth.instance.currentUser;
+    // if (user != null && user.displayName != null) {
+    //   setState(() {
+    //     firstName = user.displayName!.split(' ').first;
+    //   });
+    // }
+  }
+
+  // Add a dedicated method to get user's first name from both Auth and Firestore
+  Future<void> _getUserFirstName() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user != null) {
+        // First check if displayName is available in Firebase Auth
+        if (user.displayName != null && user.displayName!.isNotEmpty) {
+          setState(() {
+            firstName = user.displayName!.split(' ').first;
+          });
+        } else {
+          // If displayName is not in Auth, try to get it from Firestore
+          final userDoc =
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .get();
+
+          if (userDoc.exists) {
+            final userData = userDoc.data();
+            if (userData != null &&
+                userData['firstName'] != null &&
+                userData['firstName'].isNotEmpty) {
+              setState(() {
+                firstName = userData['firstName'];
+              });
+            } else if (userData != null &&
+                userData['displayName'] != null &&
+                userData['displayName'].isNotEmpty) {
+              // Try to get displayName from Firestore
+              setState(() {
+                firstName = userData['displayName'].toString().split(' ').first;
+              });
+            }
+          }
+        }
+
+        print('User first name set to: $firstName');
+      }
+    } catch (e) {
+      print('Error fetching user name: $e');
+      // Keep the default "User" name
+    }
   }
 
   Future<void> _initializeApp() async {
@@ -204,25 +262,15 @@ class _JournalScreenState extends State<JournalApp> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Welcome, Percy',
+                  Text(
+                    'Welcome, $firstName',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w500,
                       color: Colors.black87,
                     ),
                   ),
-                  // Toggle button for showing/hiding locked entries
-                  // IconButton(
-                  //   icon: Icon(
-                  //     _includeLockedEntries ? Icons.lock_open : Icons.lock,
-                  //     color: Colors.black87,
-                  //   ),
-                  //   onPressed: _toggleShowLockedEntries,
-                  //   tooltip: _includeLockedEntries
-                  //       ? 'Showing all entries'
-                  //       : 'Showing only unlocked entries',
-                  // ),
+                  
                 ],
               ),
             ),

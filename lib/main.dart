@@ -65,6 +65,11 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
       ),
       home: _isLoading ? _buildLoadingScreen() : _getInitialScreen(),
+
+      routes: {
+        '/login': (context) => LoginScreen(),
+        // Add other routes as needed
+      },
     );
   }
 

@@ -1,15 +1,21 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/journal_entry.dart';
 import '../screens/edit_journal_screen.dart';
+import '../services/local_auth_service.dart';
 
 class JournalEntryCard extends StatelessWidget {
   final JournalEntry entry;
   final Function(JournalEntry)? onEntryUpdated;
+  final Function()? onEditTap;
+  final Function(JournalEntry)? onLockToggle;
 
   const JournalEntryCard({
-    Key? key, 
-    required this.entry, 
+    Key? key,
+    required this.entry,
     this.onEntryUpdated,
+    this.onEditTap,
+    this.onLockToggle,
   }) : super(key: key);
 
   @override
@@ -170,25 +176,47 @@ class JournalEntryCard extends StatelessWidget {
               ),
               child: Hero(
                 tag: 'journal_image_${entry.id}',
-                child: Image.network(
-                  entry.imageUrl,
-                  width: double.infinity,
-                  height: 200,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
+                child: Stack(
+                  children: [
+                    Image.network(
+                      entry.imageUrl,
                       width: double.infinity,
                       height: 200,
-                      color: Colors.grey[300],
-                      child: Center(
-                        child: Icon(
-                          Icons.image_not_supported,
-                          color: Colors.grey[700],
-                          size: 40,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: double.infinity,
+                          height: 200,
+                          color: Colors.grey[300],
+                          child: Center(
+                            child: Icon(
+                              Icons.image_not_supported,
+                              color: Colors.grey[700],
+                              size: 40,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    // Lock icon overlay if entry is locked
+                    if (entry.isLocked)
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(
+                            Icons.lock,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
-                    );
-                  },
+                  ],
                 ),
               ),
             ),
@@ -214,12 +242,38 @@ class JournalEntryCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    entry.title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      // Show both bookmark and lock status if applicable
+                      Row(
+                        children: [
+                          if (entry.isBookmarked)
+                            const Icon(
+                              Icons.bookmark,
+                              color: Colors.amber,
+                              size: 22,
+                            ),
+                          if (entry.isLocked)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 8.0),
+                              child: Icon(
+                                Icons.lock,
+                                color: Colors.blue,
+                                size: 22,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -266,7 +320,7 @@ class JournalEntryCard extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit),
-                          onPressed: () => _navigateToEditScreen(context),
+                          onPressed: onEditTap ?? () => _handleEditTap(context),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           iconSize: 20,
@@ -293,19 +347,43 @@ class JournalEntryCard extends StatelessWidget {
     );
   }
 
+  // Handle edit button tap with authentication check for locked entries
+  Future<void> _handleEditTap(BuildContext context) async {
+    // Check if entry is locked, if so, authenticate before proceeding
+    if (entry.isLocked) {
+      final LocalAuthService authService = LocalAuthService();
+      bool authenticated = await authService.authenticate(
+        reason: 'Authenticate to edit this locked journal entry',
+      );
+      
+      if (!authenticated) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Authentication failed')),
+        );
+        return; // Stop if authentication fails
+      }
+    }
+    
+    // If not locked or successfully authenticated, proceed to edit screen
+    _navigateToEditScreen(context);
+  }
+
   // Navigate to edit screen when edit icon is tapped
   void _navigateToEditScreen(BuildContext context) async {
-    final result = await Navigator.push<JournalEntry>(
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditJournalScreen(entry: entry),
+        builder: (context) => EditJournalScreen(
+          entry: entry,
+          onEntryUpdated: (JournalEntry updatedEntry) {
+            if (onEntryUpdated != null) {
+              onEntryUpdated!(updatedEntry);
+            }
+          },
+        ),
       ),
     );
-    
-    // Handle the updated entry if it was returned
-    if (result != null && onEntryUpdated != null) {
-      onEntryUpdated!(result);
-    }
+    // No need to handle the result as the Firestore stream will catch changes
   }
 
   void _showActionSheet(BuildContext context, JournalEntry entry) {
@@ -320,19 +398,32 @@ class JournalEntryCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.lock),
-                title: const Text('Lock Entry'),
+                leading: Icon(
+                  entry.isLocked ? Icons.lock_open : Icons.lock,
+                  color: entry.isLocked ? Colors.blue : null,
+                ),
+                title: Text(entry.isLocked ? 'Unlock Entry' : 'Lock Entry'),
                 onTap: () {
                   Navigator.pop(context);
-                  _addPhotoToEntry(context, entry.id);
+                  // Call the onLockToggle callback if provided, otherwise fall back to internal _toggleLock
+                  if (onLockToggle != null) {
+                    onLockToggle!(entry);
+                  } else {
+                    _toggleLock(context, entry);
+                  }
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.bookmark_outline),
-                title: const Text('Bookmark Entry'),
+                leading: Icon(
+                  entry.isBookmarked ? Icons.bookmark : Icons.bookmark_outline,
+                  color: entry.isBookmarked ? Colors.amber : null,
+                ),
+                title: Text(
+                  entry.isBookmarked ? 'Remove Bookmark' : 'Bookmark Entry',
+                ),
                 onTap: () {
                   Navigator.pop(context);
-                  _editEntryText(context, entry);
+                  _toggleBookmark(context, entry);
                 },
               ),
               ListTile(
@@ -356,22 +447,95 @@ class JournalEntryCard extends StatelessWidget {
     );
   }
 
-  void _addPhotoToEntry(BuildContext context, String entryId) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Adding photo to entry $entryId')));
+  // Toggle the locked status of an entry
+  void _toggleLock(BuildContext context, JournalEntry entry) async {
+    final LocalAuthService authService = LocalAuthService();
+
+    // If we're locking the entry, we don't need authentication
+    // But if we're unlocking, we need to verify user identity
+    bool proceed = !entry.isLocked;
+
+    if (entry.isLocked) {
+      // Try to authenticate before unlocking
+      proceed = await authService.authenticate(
+        reason: 'Authenticate to unlock this journal entry',
+      );
+
+      if (!proceed) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
+        return;
+      }
+    }
+
+    if (proceed) {
+      // Create updated entry with toggled lock status
+      final updatedEntry = entry.copyWith(isLocked: !entry.isLocked);
+
+      try {
+        // Update in Firestore
+        await FirebaseFirestore.instance
+            .collection('journals')
+            .doc(entry.id)
+            .update({'isLocked': updatedEntry.isLocked});
+
+        // Call the callback if provided
+        if (onEntryUpdated != null) {
+          onEntryUpdated!(updatedEntry);
+        }
+
+        // If we just unlocked an entry, show success message
+        // The lock message will be shown by the parent screen that handles removal
+        if (!updatedEntry.isLocked) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Entry unlocked')));
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating entry lock status: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
-  void _addVoiceToEntry(BuildContext context, String entryId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Adding voice recording to entry $entryId')),
-    );
-  }
+  void _toggleBookmark(BuildContext context, JournalEntry entry) async {
+    // Create updated entry with toggled bookmark status
+    final updatedEntry = entry.copyWith(isBookmarked: !entry.isBookmarked);
 
-  void _editEntryText(BuildContext context, JournalEntry entry) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Editing text for entry ${entry.id}')),
-    );
+    try {
+      // Update in Firestore - this triggers the stream to update the UI
+      await FirebaseFirestore.instance
+          .collection('journals')
+          .doc(entry.id)
+          .update({'isBookmarked': updatedEntry.isBookmarked});
+
+      // Still call the callback if provided (for backwards compatibility)
+      if (onEntryUpdated != null) {
+        onEntryUpdated!(updatedEntry);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            updatedEntry.isBookmarked
+                ? 'Entry added to bookmarks'
+                : 'Entry removed from bookmarks',
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating bookmark: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   String _formatDate(DateTime date) {

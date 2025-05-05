@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wayfarer/Screens/bookmarked_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/landing_screen.dart'; // Import your existing landing page
-import 'screens/bookmarked_screen.dart';
 import 'screens/private_screen.dart';
 import 'screens/settings_screen.dart';
 import 'package:firebase_core/firebase_core.dart';

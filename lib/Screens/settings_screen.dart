@@ -240,6 +240,8 @@ class SettingsScreen extends StatelessWidget {
 
                             if (e.code == 'wrong-password') {
                               message = 'Current password is incorrect';
+                            } else if (e.code == 'invalid-credential') {
+                              message = 'Current password is incorrect';
                             } else if (e.code == 'weak-password') {
                               message = 'New password is too weak';
                             } else if (e.code == 'requires-recent-login') {
@@ -513,7 +515,8 @@ class SettingsScreen extends StatelessWidget {
                           } on FirebaseAuthException catch (e) {
                             String message = 'Failed to delete account';
 
-                            if (e.code == 'wrong-password') {
+                            if (e.code == 'wrong-password' ||
+                                e.code == 'invalid-credential') {
                               message = 'Password is incorrect';
                             } else if (e.code == 'requires-recent-login') {
                               message =

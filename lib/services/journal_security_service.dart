@@ -55,52 +55,61 @@ class JournalSecurityService {
   }
 
   /// Toggle the lock status of an entry
+  /// Now requires authentication for both locking and unlocking
   Future<bool> toggleLock(JournalEntry entry, BuildContext context) async {
-    bool proceed = !entry.isLocked;
+    // Always require authentication for both locking and unlocking
+    String authReason =
+        entry.isLocked
+            ? 'Authenticate to unlock this journal entry'
+            : 'Authenticate to lock this journal entry';
 
-    // If we're unlocking, verify identity
-    if (entry.isLocked) {
-      proceed = await _authService.authenticate(
-        reason: 'Authenticate to unlock this journal entry',
+    bool authenticated = await _authService.authenticate(reason: authReason);
+
+    if (!authenticated) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
+      return false;
+    }
+
+    // Authentication succeeded, proceed with the update
+    try {
+      // Update in Firestore
+      await FirebaseFirestore.instance
+          .collection('journals')
+          .doc(entry.id)
+          .update({'isLocked': !entry.isLocked});
+
+      // Manage authentication cache
+      if (entry.isLocked) {
+        // If unlocking, add to authenticated entries
+        _authenticatedEntries[entry.id] = DateTime.now();
+      } else {
+        // If locking, remove from authenticated entries
+        _authenticatedEntries.remove(entry.id);
+      }
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            entry.isLocked
+                ? 'Entry unlocked successfully'
+                : 'Entry locked successfully',
+          ),
+        ),
       );
 
-      if (!proceed) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
-        return false;
-      }
+      return true;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating lock status: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return false;
     }
-
-    if (proceed) {
-      try {
-        // Update in Firestore
-        await FirebaseFirestore.instance
-            .collection('journals')
-            .doc(entry.id)
-            .update({'isLocked': !entry.isLocked});
-
-        // If unlocking, add to authenticated entries
-        if (entry.isLocked) {
-          _authenticatedEntries[entry.id] = DateTime.now();
-        } else {
-          // If locking, remove from authenticated entries
-          _authenticatedEntries.remove(entry.id);
-        }
-
-        return true;
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating lock status: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return false;
-      }
-    }
-
-    return false;
   }
 
   /// Returns a query that filters locked entries

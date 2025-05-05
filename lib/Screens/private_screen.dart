@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/journal_entry.dart';
 import '../widgets/journal_entry_card.dart';
 import '../services/local_auth_service.dart';
+import '../services/journal_security_service.dart';
+import '../Screens/edit_journal_screen.dart';
 
 class PrivateScreen extends StatefulWidget {
   const PrivateScreen({super.key});
@@ -17,8 +20,11 @@ class _PrivateScreenState extends State<PrivateScreen> {
   String? _errorMessage;
   List<JournalEntry> _lockedEntries = [];
   final LocalAuthService _authService = LocalAuthService();
+  final JournalSecurityService _securityService = JournalSecurityService();
   // Stream for listening to journal entries from Firestore
   Stream<QuerySnapshot>? _entriesStream;
+  // Get the current user ID
+  final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
   @override
   void initState() {
@@ -27,6 +33,15 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   Future<void> _initializeScreen() async {
+    // Ensure we have a valid user ID
+    if (_currentUserId.isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "You must be logged in to view private entries.";
+      });
+      return;
+    }
+
     // Check if biometric authentication is available
     final bool isAvailable = await _authService.isBiometricAvailable();
 
@@ -80,10 +95,12 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   void _setupEntriesStream() {
-    // Initialize the stream for locked entries
+    // Initialize the stream for locked entries, filtering by current user ID
+    // This query specifically gets ONLY locked entries for the private screen
     _entriesStream =
         FirebaseFirestore.instance
             .collection('journals')
+            .where('userId', isEqualTo: _currentUserId)
             .where('isLocked', isEqualTo: true)
             .orderBy('date', descending: true)
             .snapshots();
@@ -155,7 +172,9 @@ class _PrivateScreenState extends State<PrivateScreen> {
     setState(() {
       // If the entry is no longer locked, remove it from our list
       if (!updatedEntry.isLocked) {
-        _lockedEntries.removeWhere((entry) => entry.id == updatedEntry.id);
+        _lockedEntries.removeWhere(
+          (entry) => entry.id == updatedEntry.id,
+        );
       } else {
         // Find the entry in our list and update it
         final index = _lockedEntries.indexWhere(
@@ -173,51 +192,12 @@ class _PrivateScreenState extends State<PrivateScreen> {
     });
   }
 
-  // Helper method to update lock status in Firestore
-  Future<void> _updateEntryLockStatus(
-    BuildContext context,
-    JournalEntry entry,
-    bool lockStatus,
-  ) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('journals')
-          .doc(entry.id)
-          .update({'isLocked': lockStatus});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(lockStatus ? 'Entry locked' : 'Entry unlocked')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error updating lock status: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Private Entries'),
         foregroundColor: Colors.black,
         actions: [
-          if (_isAuthenticated)
-            IconButton(
-              icon: const Icon(Icons.lock_open),
-              onPressed: () {
-                // Log out of private section
-                setState(() {
-                  _isAuthenticated = false;
-                  _lockedEntries = [];
-                  _entriesStream = null;
-                });
-              },
-              tooltip: 'Lock private section',
-            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -236,6 +216,46 @@ class _PrivateScreenState extends State<PrivateScreen> {
   }
 
   Widget _buildBody() {
+    // Check if user is logged in first
+    if (_currentUserId.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.account_circle, size: 80, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              "Not Logged In",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "You must be logged in to view private entries",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              child: const Text("Go to Login"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+              ),
+              onPressed: () {
+                // Navigate to login screen
+                // Navigator.of(context).pushReplacementNamed('/login');
+                // or show login dialog, etc.
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
     // If loading, show progress indicator
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -346,16 +366,6 @@ class _PrivateScreenState extends State<PrivateScreen> {
               "Lock entries to keep them private",
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
-            const SizedBox(height: 16),
-            // Debug button to show raw data
-            ElevatedButton(
-              onPressed: _showDatabaseDebugInfo,
-              child: const Text("Debug Database"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey,
-                foregroundColor: Colors.white,
-              ),
-            ),
           ],
         ),
       );
@@ -376,113 +386,51 @@ class _PrivateScreenState extends State<PrivateScreen> {
             padding: const EdgeInsets.all(16),
             itemCount: _lockedEntries.length,
             itemBuilder: (context, index) {
+              final entry = _lockedEntries[index];
               return JournalEntryCard(
-                entry: _lockedEntries[index],
+                entry: entry,
                 onEntryUpdated: _handleEntryUpdated,
+                onEditTap: () async {
+                  // Use security service to check if user can access this entry
+                  bool canAccess = await _securityService.canAccessEntry(
+                    entry,
+                    context,
+                  );
+                  if (!canAccess) return;
+
+                  // If successfully authenticated, navigate to edit screen
+                  if (context.mounted) {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder:
+                            (context) => EditJournalScreen(
+                              entry: entry,
+                              onEntryUpdated: _handleEntryUpdated,
+                            ),
+                      ),
+                    );
+                  }
+                },
                 onLockToggle: (entry) async {
-                  await _updateEntryLockStatus(context, entry, !entry.isLocked);
+                  // Use the security service to handle lock toggle
+                  final success = await _securityService.toggleLock(
+                    entry,
+                    context,
+                  );
+                  if (success) {
+                    // Update the entry in memory after successful toggle
+                    final updatedEntry = entry.copyWith(
+                      isLocked: !entry.isLocked,
+                    );
+                    _handleEntryUpdated(updatedEntry);
+                  }
                 },
               );
             },
           ),
         ),
-        // Debug button at the bottom
-        // Padding(
-        //   padding: const EdgeInsets.all(8.0),
-        //   child: ElevatedButton(
-        //     onPressed: _showDatabaseDebugInfo,
-        //     child: const Text("Check Database"),
-        //     style: ElevatedButton.styleFrom(
-        //       backgroundColor: Colors.grey[300],
-        //       foregroundColor: Colors.black87,
-        //     ),
-        //   ),
-        // ),
       ],
     );
-  }
-
-  // Enhanced debug method to check raw database data
-  Future<void> _showDatabaseDebugInfo() async {
-    try {
-      final QuerySnapshot allLockedSnapshot =
-          await FirebaseFirestore.instance
-              .collection('journals')
-              .where('isLocked', isEqualTo: true)
-              .get();
-
-      final QuerySnapshot allEntriesSnapshot =
-          await FirebaseFirestore.instance
-              .collection('journals')
-              .limit(30)
-              .get();
-
-      int totalLockedCount = allLockedSnapshot.docs.length;
-      int displayedCount = _lockedEntries.length;
-      List<String> entriesInfo = [];
-
-      for (var doc in allEntriesSnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final isLocked = data['isLocked'] == true;
-        final date =
-            data['date'] != null
-                ? (data['date'] as Timestamp).toDate().toString()
-                : 'unknown date';
-        entriesInfo.add("ID: ${doc.id}, isLocked: $isLocked, date: $date");
-      }
-
-      // ignore: use_build_context_synchronously
-      showDialog(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('Database Debug Info'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Total locked entries in database: $totalLockedCount'),
-                    Text('Currently displayed locked entries: $displayedCount'),
-                    const SizedBox(height: 16),
-                    const Text('Sample of recent entries (max 30):'),
-                    const SizedBox(height: 8),
-                    ...entriesInfo.map(
-                      (info) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4.0),
-                        child: Text(info, style: const TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
-      );
-    } catch (e) {
-      debugPrint("Error in debug info: $e");
-
-      // Show error dialog
-      // ignore: use_build_context_synchronously
-      showDialog(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('Debug Error'),
-              content: Text('Error fetching debug info: $e'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
-      );
-    }
   }
 }

@@ -153,7 +153,11 @@ class MediaItemsService {
 class EditJournalScreen extends StatefulWidget {
   final JournalEntry entry;
 
-  const EditJournalScreen({Key? key, required this.entry, required void Function(JournalEntry updatedEntry) onEntryUpdated}) : super(key: key);
+  const EditJournalScreen({
+    Key? key,
+    required this.entry,
+    required void Function(JournalEntry updatedEntry) onEntryUpdated,
+  }) : super(key: key);
 
   @override
   State<EditJournalScreen> createState() => _EditJournalScreenState();
@@ -1746,9 +1750,10 @@ class _EditJournalScreenState extends State<EditJournalScreen>
     }
   }
 
-  void _removeActivityTracker(ActivityType type) {
+  void _removeActivityTracker(ActivityTracker tracker) {
     setState(() {
-      _activityTrackers.removeWhere((tracker) => tracker.type == type);
+      // Remove the specific tracker instance
+      _activityTrackers.remove(tracker);
     });
   }
 
@@ -1965,7 +1970,6 @@ class _EditJournalScreenState extends State<EditJournalScreen>
                 _buildToolbarIcon(Icons.mic, 'Voice', () {
                   _addNewMedia(MediaType.audio);
                 }),
-                _buildToolbarIcon(Icons.calendar_month, 'Calendar', () {}),
                 _buildToolbarIcon(Icons.place, 'Location', () async {
                   // Show a dialog with location options
                   final locationOption = await showDialog<String>(
@@ -2344,7 +2348,7 @@ class _EditJournalScreenState extends State<EditJournalScreen>
           ),
           const Spacer(),
           GestureDetector(
-            onTap: () => _removeActivityTracker(tracker.type),
+            onTap: () => _removeActivityTracker(tracker),
             child: Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(

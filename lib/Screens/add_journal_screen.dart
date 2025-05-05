@@ -499,9 +499,10 @@ class _AddJournalScreenState extends State<AddJournalScreen>
     });
   }
 
-  void _removeActivityTracker(ActivityType type) {
+  void _removeActivityTracker(ActivityTracker tracker) {
     setState(() {
-      _activityTrackers.removeWhere((tracker) => tracker.type == type);
+      // Remove the specific tracker instance
+      _activityTrackers.remove(tracker);
     });
   }
 
@@ -718,23 +719,6 @@ class _AddJournalScreenState extends State<AddJournalScreen>
                 }),
                 _buildToolbarIcon(Icons.mic, 'Voice', () {
                   _addNewMedia(MediaType.audio);
-                }),
-                _buildToolbarIcon(Icons.calendar_month, 'Calendar', () async {
-                  final DateTime? pickedDate = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now(),
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2101),
-                  );
-
-                  if (pickedDate != null) {
-                    // Do something with the selected date
-                    // For example, you might want to update state or pass the date to another function
-                    print('Selected date: ${pickedDate.toString()}');
-                    // setState(() {
-                    //   selectedDate = pickedDate;
-                    // });
-                  }
                 }),
                 _buildToolbarIcon(Icons.place, 'Location', () async {
                   // Show a dialog with location options
@@ -1138,7 +1122,7 @@ class _AddJournalScreenState extends State<AddJournalScreen>
           ),
           const Spacer(),
           GestureDetector(
-            onTap: () => _removeActivityTracker(tracker.type),
+            onTap: () => _removeActivityTracker(tracker),
             child: Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(

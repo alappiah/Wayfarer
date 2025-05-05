@@ -5,7 +5,7 @@ import 'package:wayfarer/Screens/edit_journal_screen.dart';
 import '../models/journal_entry.dart';
 import '../widgets/journal_entry_card.dart';
 import '../services/local_auth_service.dart';
-import '../services/journal_security_service.dart'; // Import the security service
+import '../services/journal_security_service.dart';
 
 class BookmarkedScreen extends StatefulWidget {
   const BookmarkedScreen({super.key});
@@ -46,15 +46,14 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
       return;
     }
 
-    // Use the security service query and add bookmark filter
-    Query<Map<String, dynamic>> query = _securityService
-        .getJournalsQuery(
-          includeLockedEntries: true, // Show both locked and unlocked entries
-        )
-        .where('isBookmarked', isEqualTo: true);
-
-    // Add ordering
-    query = query.orderBy('date', descending: true);
+    // Create a query for unlocked entries that are bookmarked
+    // This will show only unlocked bookmarked entries
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('journals')
+        .where('userId', isEqualTo: userId)
+        .where('isLocked', isEqualTo: false)
+        .where('isBookmarked', isEqualTo: true)
+        .orderBy('date', descending: true);
 
     // Update the stream
     _entriesStream = query.snapshots();
@@ -151,8 +150,8 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
   // Handle entry updates - improved to handle in-memory updates
   void _handleEntryUpdated(JournalEntry updatedEntry) {
     setState(() {
-      // If the entry is no longer bookmarked, remove it from our list
-      if (!updatedEntry.isBookmarked) {
+      // If the entry is no longer bookmarked OR now locked, remove it from our list
+      if (!updatedEntry.isBookmarked || updatedEntry.isLocked) {
         _entries.removeWhere((entry) => entry.id == updatedEntry.id);
       } else {
         // Find the entry in our list and update it
@@ -162,10 +161,12 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
         if (index >= 0) {
           _entries[index] = updatedEntry;
         } else {
-          // New bookmarked entry - add it
-          _entries.add(updatedEntry);
-          // Sort by date descending
-          _entries.sort((a, b) => b.date.compareTo(a.date));
+          // New bookmarked entry - add it if it's not locked
+          if (!updatedEntry.isLocked) {
+            _entries.add(updatedEntry);
+            // Sort by date descending
+            _entries.sort((a, b) => b.date.compareTo(a.date));
+          }
         }
       }
     });
@@ -177,22 +178,6 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
       _isLoading = true;
     });
     _initializeStream();
-  }
-
-  // Handle authentication for locked entries
-  Future<bool> _authenticateForLockedEntry(BuildContext context) async {
-    final LocalAuthService authService = LocalAuthService();
-    bool authenticated = await authService.authenticate(
-      reason: 'Authenticate to view locked journal entry',
-    );
-
-    if (!authenticated) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Authentication failed')));
-    }
-
-    return authenticated;
   }
 
   @override

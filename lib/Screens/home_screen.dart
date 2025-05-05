@@ -19,7 +19,7 @@ class _JournalScreenState extends State<JournalApp> {
   late Stream<QuerySnapshot> _entriesStream;
   List<JournalEntry> _entries = [];
   bool _isLoading = true;
-  bool _includeLockedEntries = true; // Whether to show locked entries
+  // Removed _includeLockedEntries flag as we'll always exclude locked entries from home screen
   final JournalSecurityService _securityService = JournalSecurityService();
 
   String firstName = 'User';
@@ -32,13 +32,6 @@ class _JournalScreenState extends State<JournalApp> {
     _initializeApp();
 
     _getUserFirstName();
-
-    // final user = FirebaseAuth.instance.currentUser;
-    // if (user != null && user.displayName != null) {
-    //   setState(() {
-    //     firstName = user.displayName!.split(' ').first;
-    //   });
-    // }
   }
 
   // Add a dedicated method to get user's first name from both Auth and Firestore
@@ -100,13 +93,23 @@ class _JournalScreenState extends State<JournalApp> {
 
   // Updates the entries stream based on current security settings
   void _updateEntriesStream() {
-    // Get query from security service that properly filters entries
-    Query<Map<String, dynamic>> query = _securityService.getJournalsQuery(
-      includeLockedEntries: _includeLockedEntries,
-    );
+    // Get current user ID
+    final userId = FirebaseAuth.instance.currentUser?.uid;
 
-    // Add ordering
-    query = query.orderBy('date', descending: true);
+    if (userId == null) {
+      setState(() {
+        _entries = [];
+        _isLoading = false;
+      });
+      return;
+    }
+
+    // Create a query for unlocked entries only (exclude locked entries)
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('journals')
+        .where('userId', isEqualTo: userId)
+        .where('isLocked', isEqualTo: false) // Only show unlocked entries
+        .orderBy('date', descending: true);
 
     // Update the stream
     _entriesStream = query.snapshots();
@@ -182,7 +185,7 @@ class _JournalScreenState extends State<JournalApp> {
                   additionalImages: additionalImages,
                   audioRecordings: audioRecordings,
                   isBookmarked: data['isBookmarked'] ?? false,
-                  isLocked: data['isLocked'] ?? false, // Add isLocked property
+                  isLocked: data['isLocked'] ?? false,
                 );
               }).toList();
 
@@ -201,10 +204,20 @@ class _JournalScreenState extends State<JournalApp> {
   // Handle entry updates from any screen
   void _handleEntryUpdated(JournalEntry updatedEntry) {
     setState(() {
-      // Find the entry in our list and update it
-      final index = _entries.indexWhere((entry) => entry.id == updatedEntry.id);
-      if (index >= 0) {
-        _entries[index] = updatedEntry;
+      // If the entry has been locked, remove it from the home screen
+      if (updatedEntry.isLocked) {
+        _entries.removeWhere((entry) => entry.id == updatedEntry.id);
+      } else {
+        // Otherwise, update it in our list if it exists
+        final index = _entries.indexWhere((entry) => entry.id == updatedEntry.id);
+        if (index >= 0) {
+          _entries[index] = updatedEntry;
+        } else {
+          // If the entry was previously locked and now unlocked, add it
+          _entries.add(updatedEntry);
+          // Sort by date descending
+          _entries.sort((a, b) => b.date.compareTo(a.date));
+        }
       }
     });
   }
@@ -214,45 +227,31 @@ class _JournalScreenState extends State<JournalApp> {
     // Check if user can access this entry
     bool canAccess = await _securityService.canAccessEntry(entry, context);
 
-    if (canAccess) {
+    if (canAccess && context.mounted) {
       // Navigate to view/edit entry screen
-      final updatedEntry = await Navigator.of(context).push(
+      final result = await Navigator.of(context).push(
         MaterialPageRoute(
-          builder:
-              (context) => EditJournalScreen(
-                entry: entry,
-                onEntryUpdated: (JournalEntry updatedEntry) {},
-              ),
+          builder: (context) => EditJournalScreen(
+            entry: entry,
+            onEntryUpdated: _handleEntryUpdated,
+          ),
         ),
       );
 
-      if (updatedEntry != null && updatedEntry is JournalEntry) {
-        _handleEntryUpdated(updatedEntry);
+      if (result != null && result is JournalEntry) {
+        _handleEntryUpdated(result);
       }
     }
     // If canAccess is false, the security service already showed a message
   }
 
-  // Toggle showing locked entries
-  void _toggleShowLockedEntries() {
-    setState(() {
-      _includeLockedEntries = !_includeLockedEntries;
-      _isLoading = true;
-    });
-
-    _updateEntriesStream();
-    _loadJournalEntries();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Removed app bar as requested
-      // Adding lock toggle button to a row at the top instead
       extendBody: true,
       body: CustomScrollView(
         slivers: [
-          // Welcome text with lock toggle
+          // Welcome text
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(
@@ -270,7 +269,6 @@ class _JournalScreenState extends State<JournalApp> {
                       color: Colors.black87,
                     ),
                   ),
-                  
                 ],
               ),
             ),
@@ -331,7 +329,20 @@ class _JournalScreenState extends State<JournalApp> {
                     child: JournalEntryCard(
                       entry: entry,
                       onEntryUpdated: _handleEntryUpdated,
-                      // Remove securityService parameter since it's not defined in JournalEntryCard
+                      onLockToggle: (entry) async {
+                        // Use the security service to handle lock toggle
+                        final success = await _securityService.toggleLock(
+                          entry,
+                          context,
+                        );
+                        if (success) {
+                          // Update the entry in memory after successful toggle
+                          final updatedEntry = entry.copyWith(
+                            isLocked: !entry.isLocked,
+                          );
+                          _handleEntryUpdated(updatedEntry);
+                        }
+                      },
                     ),
                   ),
                 );
@@ -356,12 +367,13 @@ class _JournalScreenState extends State<JournalApp> {
       context,
     ).push(MaterialPageRoute(builder: (context) => AddJournalScreen()));
 
-    // Since entries are now loaded from Firestore, we don't need to manually
-    // add them to the list anymore. The stream will automatically update.
-    if (result != null && result is JournalEntry) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Journal entry added')));
+    // If we get a new entry back and it's unlocked, add it to our list
+    if (result != null && result is JournalEntry && !result.isLocked) {
+      _handleEntryUpdated(result);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Journal entry added'))
+      );
     }
   }
 }

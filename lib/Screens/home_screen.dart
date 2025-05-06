@@ -21,7 +21,7 @@ class _JournalScreenState extends State<JournalApp> {
   List<JournalEntry> _filteredEntries = []; // For search results
   bool _isLoading = true;
   final JournalSecurityService _securityService = JournalSecurityService();
-  
+
   // Search functionality
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
@@ -37,18 +37,18 @@ class _JournalScreenState extends State<JournalApp> {
     _initializeApp();
 
     _getUserFirstName();
-    
+
     // Add listener for search
     _searchController.addListener(_onSearchChanged);
   }
-  
+
   @override
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
-  
+
   // Search functionality
   void _onSearchChanged() {
     setState(() {
@@ -56,17 +56,22 @@ class _JournalScreenState extends State<JournalApp> {
       _filterEntries();
     });
   }
-  
+
   void _filterEntries() {
     if (_searchQuery.isEmpty) {
       _filteredEntries = List.from(_entries);
     } else {
-      _filteredEntries = _entries
-          .where((entry) => entry.title.toLowerCase().contains(_searchQuery.toLowerCase()))
-          .toList();
+      _filteredEntries =
+          _entries
+              .where(
+                (entry) => entry.title.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+              )
+              .toList();
     }
   }
-  
+
   void _toggleSearch() {
     setState(() {
       _isSearching = !_isSearching;
@@ -148,7 +153,7 @@ class _JournalScreenState extends State<JournalApp> {
       return;
     }
 
-    // Create a query for unlocked entries only (exclude locked entries)
+    // FIXED: Show all unlocked entries (including bookmarked and non-bookmarked)
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('journals')
         .where('userId', isEqualTo: userId)
@@ -247,16 +252,19 @@ class _JournalScreenState extends State<JournalApp> {
     );
   }
 
-  // Handle entry updates from any screen
+  // FIXED: Handle entry updates to properly maintain entries regardless of bookmark status
   void _handleEntryUpdated(JournalEntry updatedEntry) {
     setState(() {
-      // If the entry has been locked, remove it from the home screen
+      // Only remove entries that become locked
       if (updatedEntry.isLocked) {
         _entries.removeWhere((entry) => entry.id == updatedEntry.id);
       } else {
-        // Otherwise, update it in our list if it exists
-        final index = _entries.indexWhere((entry) => entry.id == updatedEntry.id);
+        // For all other updates (including bookmark changes), update the entry
+        final index = _entries.indexWhere(
+          (entry) => entry.id == updatedEntry.id,
+        );
         if (index >= 0) {
+          // Update the entry but keep it in the list regardless of bookmark status
           _entries[index] = updatedEntry;
         } else {
           // If the entry was previously locked and now unlocked, add it
@@ -265,6 +273,7 @@ class _JournalScreenState extends State<JournalApp> {
           _entries.sort((a, b) => b.date.compareTo(a.date));
         }
       }
+
       // Update filtered entries after modifying the main list
       _filterEntries();
     });
@@ -279,10 +288,11 @@ class _JournalScreenState extends State<JournalApp> {
       // Navigate to view/edit entry screen
       final result = await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => EditJournalScreen(
-            entry: entry,
-            onEntryUpdated: _handleEntryUpdated,
-          ),
+          builder:
+              (context) => EditJournalScreen(
+                entry: entry,
+                onEntryUpdated: _handleEntryUpdated,
+              ),
         ),
       );
 
@@ -303,36 +313,37 @@ class _JournalScreenState extends State<JournalApp> {
           SliverAppBar(
             floating: true,
             automaticallyImplyLeading: false,
-            title: _isSearching 
-              ? TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search journal titles...',
-                    border: InputBorder.none,
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        _toggleSearch();
-                      },
-                    ),
-                  ),
-                  autofocus: true,
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Welcome, $firstName',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black87,
+            title:
+                _isSearching
+                    ? TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search journal titles...',
+                        border: InputBorder.none,
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            _toggleSearch();
+                          },
+                        ),
                       ),
+                      autofocus: true,
+                    )
+                    : Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Welcome, $firstName',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
             actions: [
               if (!_isSearching)
                 IconButton(
@@ -471,10 +482,10 @@ class _JournalScreenState extends State<JournalApp> {
     // If we get a new entry back and it's unlocked, add it to our list
     if (result != null && result is JournalEntry && !result.isLocked) {
       _handleEntryUpdated(result);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Journal entry added'))
-      );
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Journal entry added')));
     }
   }
 }

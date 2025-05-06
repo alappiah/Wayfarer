@@ -96,13 +96,12 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
       return;
     }
 
-    // Create a query for unlocked entries that are bookmarked
-    // Shows only unlocked bookmarked entries
+    // FIXED: Only show unlocked bookmarked entries
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('journals')
         .where('userId', isEqualTo: userId)
-        .where('isLocked', isEqualTo: false)
         .where('isBookmarked', isEqualTo: true)
+        .where('isLocked', isEqualTo: false) // Only show unlocked entries
         .orderBy('date', descending: true);
 
     // Update the stream
@@ -200,10 +199,10 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
     );
   }
 
-  // Handle entry updates - improved to handle in-memory updates
+  // IMPROVED: Handle entry updates
   void _handleEntryUpdated(JournalEntry updatedEntry) {
     setState(() {
-      // If the entry is no longer bookmarked OR now locked, remove it from our list
+      // If entry is no longer bookmarked or becomes locked, remove it from our list
       if (!updatedEntry.isBookmarked || updatedEntry.isLocked) {
         _entries.removeWhere((entry) => entry.id == updatedEntry.id);
       } else {
@@ -214,12 +213,10 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
         if (index >= 0) {
           _entries[index] = updatedEntry;
         } else {
-          // New bookmarked entry - add it if it's not locked
-          if (!updatedEntry.isLocked) {
-            _entries.add(updatedEntry);
-            // Sort by date descending
-            _entries.sort((a, b) => b.date.compareTo(a.date));
-          }
+          // New bookmarked entry - add it
+          _entries.add(updatedEntry);
+          // Sort by date descending
+          _entries.sort((a, b) => b.date.compareTo(a.date));
         }
       }
 

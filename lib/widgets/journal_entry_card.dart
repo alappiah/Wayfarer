@@ -579,7 +579,7 @@ class JournalEntryCard extends StatelessWidget {
     final updatedEntry = entry.copyWith(isBookmarked: !entry.isBookmarked);
 
     try {
-      // Update in Firestore - this triggers the stream to update the UI
+      // Update in Firestore. Triggers the stream to update the UI
       await FirebaseFirestore.instance
           .collection('journals')
           .doc(entry.id)

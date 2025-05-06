@@ -338,9 +338,9 @@ class _AddJournalScreenState extends State<AddJournalScreen>
             source:
                 source == ImageSource.camera
                     ? ImageSource
-                        .camera // This uses the actual ImagePicker's camera source
+                        .camera // Uses ImagePicker's camera source
                     : ImageSource
-                        .gallery, // This uses the actual ImagePicker's gallery source
+                        .gallery, // Uses actual ImagePicker's gallery source
           );
 
           if (pickedImage != null) {
@@ -1314,6 +1314,7 @@ class _AddJournalScreenState extends State<AddJournalScreen>
         'title': _titleController.text,
         'description': _descriptionController.text,
         'imageUrl': mainImage,
+        'isLocked' : false,
         'additionalImages': additionalImages,
         'audioRecordings': audioRecordingsData,
         'locations': locationDataList,

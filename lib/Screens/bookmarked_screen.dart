@@ -97,7 +97,7 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
     }
 
     // Create a query for unlocked entries that are bookmarked
-    // This will show only unlocked bookmarked entries
+    // Shows only unlocked bookmarked entries
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('journals')
         .where('userId', isEqualTo: userId)

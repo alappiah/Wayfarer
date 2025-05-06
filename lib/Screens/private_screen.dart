@@ -147,7 +147,7 @@ class _PrivateScreenState extends State<PrivateScreen> {
 
   void _setupEntriesStream() {
     // Initialize the stream for locked entries, filtering by current user ID
-    // This query specifically gets ONLY locked entries for the private screen
+    // Gets ONLY locked entries for the private screen
     _entriesStream =
         FirebaseFirestore.instance
             .collection('journals')

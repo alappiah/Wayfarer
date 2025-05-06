@@ -1376,8 +1376,7 @@ class _EditJournalScreenState extends State<EditJournalScreen>
         print(
           "Entry claims to have location data but manager doesn't have it. Will try to load.",
         );
-        // This would typically be done asynchronously, but for immediate use,
-        // we'll check for any location data in the state variable
+       
       }
 
       // Direct approach: Get location data for each index individually
@@ -2493,7 +2492,6 @@ class _EditJournalScreenState extends State<EditJournalScreen>
         '_mediaItems audio count: ${_mediaItems.where((item) => item.type == MediaType.audio).length}',
       );
 
-      // CRITICAL: First check both sources for audio recordings
 
       // 1. Get audio recordings from widget.entry
       if (widget.entry.audioRecordings != null) {
@@ -2513,7 +2511,6 @@ class _EditJournalScreenState extends State<EditJournalScreen>
       }
 
       // 2. Get audio recordings from _mediaItems
-      // Track URLs we've already added to avoid duplicates
       final existingAudioUrls =
           audioRecordingsData.map((data) => data['url'].toString()).toSet();
 

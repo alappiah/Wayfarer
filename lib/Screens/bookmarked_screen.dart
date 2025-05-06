@@ -19,8 +19,14 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
   // Stream for listening to journal entries from Firestore
   late Stream<QuerySnapshot> _entriesStream;
   List<JournalEntry> _entries = [];
+  List<JournalEntry> _filteredEntries = []; // For search results
   bool _isLoading = true;
   final JournalSecurityService _securityService = JournalSecurityService();
+
+  // Search functionality
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  String _searchQuery = '';
 
   @override
   bool get wantKeepAlive => true; // Keep state when switching tabs
@@ -30,6 +36,49 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
     super.initState();
     // Initialize the stream
     _initializeStream();
+
+    // Add listener for search
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // Search functionality
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _filterEntries();
+    });
+  }
+
+  void _filterEntries() {
+    if (_searchQuery.isEmpty) {
+      _filteredEntries = List.from(_entries);
+    } else {
+      _filteredEntries =
+          _entries
+              .where(
+                (entry) => entry.title.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+              )
+              .toList();
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchController.clear();
+        _filterEntries();
+      }
+    });
   }
 
   // Initialize stream to get bookmarked entries
@@ -41,6 +90,7 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
       // Handle case when no user is logged in
       setState(() {
         _entries = [];
+        _filteredEntries = [];
         _isLoading = false;
       });
       return;
@@ -136,6 +186,9 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
               }).toList();
 
           _isLoading = false;
+
+          // Initialize filtered entries with all entries
+          _filterEntries();
         });
       },
       onError: (error) {
@@ -169,6 +222,9 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
           }
         }
       }
+
+      // Update filtered entries after modifying the main list
+      _filterEntries();
     });
   }
 
@@ -185,6 +241,43 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title:
+            _isSearching
+                ? TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search bookmarked entries...',
+                    border: InputBorder.none,
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _toggleSearch();
+                      },
+                    ),
+                  ),
+                  autofocus: true,
+                )
+                : const Text(
+                  '',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+        actions: [
+          if (!_isSearching)
+            IconButton(
+              icon: const Icon(Icons.search, color: Colors.black87),
+              onPressed: _toggleSearch,
+            ),
+        ],
+      ),
       body:
           _isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -218,15 +311,42 @@ class _BookmarkedScreenState extends State<BookmarkedScreen>
                   ],
                 ),
               )
+              // Empty search results state
+              : _filteredEntries.isEmpty && _searchQuery.isNotEmpty
+              ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "No Matching Entries",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        "Try a different search term",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                      ),
+                    ),
+                  ],
+                ),
+              )
               : RefreshIndicator(
                 onRefresh: () async {
                   _refreshEntries();
                 },
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _entries.length,
+                  itemCount: _filteredEntries.length,
                   itemBuilder: (context, index) {
-                    final entry = _entries[index];
+                    final entry = _filteredEntries[index];
                     return JournalEntryCard(
                       entry: entry,
                       onEntryUpdated: _handleEntryUpdated,

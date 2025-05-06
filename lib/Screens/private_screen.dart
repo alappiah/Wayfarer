@@ -19,17 +19,68 @@ class _PrivateScreenState extends State<PrivateScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   List<JournalEntry> _lockedEntries = [];
+  List<JournalEntry> _filteredEntries = []; // For search results
   final LocalAuthService _authService = LocalAuthService();
   final JournalSecurityService _securityService = JournalSecurityService();
+
   // Stream for listening to journal entries from Firestore
   Stream<QuerySnapshot>? _entriesStream;
+
   // Get the current user ID
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  // Search functionality
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _initializeScreen();
+
+    // Add listener for search
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // Search functionality
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _filterEntries();
+    });
+  }
+
+  void _filterEntries() {
+    if (_searchQuery.isEmpty) {
+      _filteredEntries = List.from(_lockedEntries);
+    } else {
+      _filteredEntries =
+          _lockedEntries
+              .where(
+                (entry) => entry.title.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+              )
+              .toList();
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchController.clear();
+        _filterEntries();
+      }
+    });
   }
 
   Future<void> _initializeScreen() async {
@@ -155,6 +206,9 @@ class _PrivateScreenState extends State<PrivateScreen> {
               }).toList();
 
           _isLoading = false;
+
+          // Initialize filtered entries with all entries
+          _filterEntries();
         });
       },
       onError: (error) {
@@ -172,9 +226,7 @@ class _PrivateScreenState extends State<PrivateScreen> {
     setState(() {
       // If the entry is no longer locked, remove it from our list
       if (!updatedEntry.isLocked) {
-        _lockedEntries.removeWhere(
-          (entry) => entry.id == updatedEntry.id,
-        );
+        _lockedEntries.removeWhere((entry) => entry.id == updatedEntry.id);
       } else {
         // Find the entry in our list and update it
         final index = _lockedEntries.indexWhere(
@@ -189,6 +241,9 @@ class _PrivateScreenState extends State<PrivateScreen> {
           _lockedEntries.sort((a, b) => b.date.compareTo(a.date));
         }
       }
+
+      // Update filtered entries after modifying the main list
+      _filterEntries();
     });
   }
 
@@ -197,7 +252,40 @@ class _PrivateScreenState extends State<PrivateScreen> {
     return Scaffold(
       appBar: AppBar(
         foregroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title:
+            _isSearching
+                ? TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search private entries...',
+                    border: InputBorder.none,
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _toggleSearch();
+                      },
+                    ),
+                  ),
+                  autofocus: true,
+                )
+                : const Text(
+                  '',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
         actions: [
+          if (_isAuthenticated && !_isSearching)
+            IconButton(
+              icon: const Icon(Icons.search, color: Colors.black87),
+              onPressed: _toggleSearch,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -371,63 +459,94 @@ class _PrivateScreenState extends State<PrivateScreen> {
       );
     }
 
+    // Empty search results state
+    if (_filteredEntries.isEmpty && _searchQuery.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            const Text(
+              "No Matching Entries",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                "Try a different search term",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     // If authenticated and entries exist, show entries list
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Text(
-            "Found ${_lockedEntries.length} locked entries",
+            "Found ${_filteredEntries.length} private entries",
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _lockedEntries.length,
-            itemBuilder: (context, index) {
-              final entry = _lockedEntries[index];
-              return JournalEntryCard(
-                entry: entry,
-                onEntryUpdated: _handleEntryUpdated,
-                onEditTap: () async {
-                  // Use security service to check if user can access this entry
-                  bool canAccess = await _securityService.canAccessEntry(
-                    entry,
-                    context,
-                  );
-                  if (!canAccess) return;
-
-                  // If successfully authenticated, navigate to edit screen
-                  if (context.mounted) {
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder:
-                            (context) => EditJournalScreen(
-                              entry: entry,
-                              onEntryUpdated: _handleEntryUpdated,
-                            ),
-                      ),
-                    );
-                  }
-                },
-                onLockToggle: (entry) async {
-                  // Use the security service to handle lock toggle
-                  final success = await _securityService.toggleLock(
-                    entry,
-                    context,
-                  );
-                  if (success) {
-                    // Update the entry in memory after successful toggle
-                    final updatedEntry = entry.copyWith(
-                      isLocked: !entry.isLocked,
-                    );
-                    _handleEntryUpdated(updatedEntry);
-                  }
-                },
-              );
+          child: RefreshIndicator(
+            onRefresh: () async {
+              _setupEntriesStream();
             },
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _filteredEntries.length,
+              itemBuilder: (context, index) {
+                final entry = _filteredEntries[index];
+                return JournalEntryCard(
+                  entry: entry,
+                  onEntryUpdated: _handleEntryUpdated,
+                  onEditTap: () async {
+                    // Use security service to check if user can access this entry
+                    bool canAccess = await _securityService.canAccessEntry(
+                      entry,
+                      context,
+                    );
+                    if (!canAccess) return;
+
+                    // If successfully authenticated, navigate to edit screen
+                    if (context.mounted) {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => EditJournalScreen(
+                                entry: entry,
+                                onEntryUpdated: _handleEntryUpdated,
+                              ),
+                        ),
+                      );
+                    }
+                  },
+                  onLockToggle: (entry) async {
+                    // Use the security service to handle lock toggle
+                    final success = await _securityService.toggleLock(
+                      entry,
+                      context,
+                    );
+                    if (success) {
+                      // Update the entry in memory after successful toggle
+                      final updatedEntry = entry.copyWith(
+                        isLocked: !entry.isLocked,
+                      );
+                      _handleEntryUpdated(updatedEntry);
+                    }
+                  },
+                );
+              },
+            ),
           ),
         ),
       ],

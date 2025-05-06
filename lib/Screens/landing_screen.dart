@@ -87,7 +87,7 @@ class LandingPage extends StatelessWidget {
                             onPressed: () async {
                               // Set flag that landing page has been seen
                               await _markLandingPageAsShown();
-                              
+
                               // Navigate to the LoginScreen
                               Navigator.pushReplacement(
                                 context,
@@ -120,7 +120,7 @@ class LandingPage extends StatelessWidget {
                             onPressed: () async {
                               // Set flag that landing page has been seen
                               await _markLandingPageAsShown();
-                              
+
                               // Navigate to the RegisterScreen
                               Navigator.pushReplacement(
                                 context,
@@ -157,7 +157,7 @@ class LandingPage extends StatelessWidget {
       ),
     );
   }
-  
+
   // Function to mark landing page as shown using SharedPreferences
   Future<void> _markLandingPageAsShown() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();

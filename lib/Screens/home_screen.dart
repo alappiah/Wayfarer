@@ -18,9 +18,14 @@ class _JournalScreenState extends State<JournalApp> {
   // Stream for listening to journal entries from Firestore
   late Stream<QuerySnapshot> _entriesStream;
   List<JournalEntry> _entries = [];
+  List<JournalEntry> _filteredEntries = []; // For search results
   bool _isLoading = true;
-  // Removed _includeLockedEntries flag as we'll always exclude locked entries from home screen
   final JournalSecurityService _securityService = JournalSecurityService();
+  
+  // Search functionality
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  String _searchQuery = '';
 
   String firstName = 'User';
 
@@ -32,6 +37,44 @@ class _JournalScreenState extends State<JournalApp> {
     _initializeApp();
 
     _getUserFirstName();
+    
+    // Add listener for search
+    _searchController.addListener(_onSearchChanged);
+  }
+  
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+  
+  // Search functionality
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _filterEntries();
+    });
+  }
+  
+  void _filterEntries() {
+    if (_searchQuery.isEmpty) {
+      _filteredEntries = List.from(_entries);
+    } else {
+      _filteredEntries = _entries
+          .where((entry) => entry.title.toLowerCase().contains(_searchQuery.toLowerCase()))
+          .toList();
+    }
+  }
+  
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchController.clear();
+        _filterEntries();
+      }
+    });
   }
 
   // Add a dedicated method to get user's first name from both Auth and Firestore
@@ -99,6 +142,7 @@ class _JournalScreenState extends State<JournalApp> {
     if (userId == null) {
       setState(() {
         _entries = [];
+        _filteredEntries = [];
         _isLoading = false;
       });
       return;
@@ -189,6 +233,8 @@ class _JournalScreenState extends State<JournalApp> {
                 );
               }).toList();
 
+          // Initialize filtered entries with all entries
+          _filterEntries();
           _isLoading = false;
         });
       },
@@ -219,6 +265,8 @@ class _JournalScreenState extends State<JournalApp> {
           _entries.sort((a, b) => b.date.compareTo(a.date));
         }
       }
+      // Update filtered entries after modifying the main list
+      _filterEntries();
     });
   }
 
@@ -251,27 +299,49 @@ class _JournalScreenState extends State<JournalApp> {
       extendBody: true,
       body: CustomScrollView(
         slivers: [
-          // Welcome text
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 16.0,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Welcome, $firstName',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
+          // App bar with search functionality
+          SliverAppBar(
+            floating: true,
+            automaticallyImplyLeading: false,
+            title: _isSearching 
+              ? TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search journal titles...',
+                    border: InputBorder.none,
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _toggleSearch();
+                      },
                     ),
                   ),
-                ],
-              ),
-            ),
+                  autofocus: true,
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Welcome, $firstName',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+            actions: [
+              if (!_isSearching)
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: _toggleSearch,
+                ),
+            ],
+            backgroundColor: Colors.white,
+            elevation: 0,
           ),
 
           // Loading indicator or empty state
@@ -314,11 +384,42 @@ class _JournalScreenState extends State<JournalApp> {
                 ),
               ),
             )
-          // Journal entries list
+          // Empty search results state
+          else if (_filteredEntries.isEmpty && _searchQuery.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.search_off,
+                        size: 64.0,
+                        color: Colors.grey,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No matching journal entries',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Try a different search term',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          // Journal entries list (filtered or all)
           else
             SliverList(
               delegate: SliverChildBuilderDelegate((context, index) {
-                final entry = _entries[index];
+                final entry = _filteredEntries[index];
                 return Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16.0,
@@ -346,7 +447,7 @@ class _JournalScreenState extends State<JournalApp> {
                     ),
                   ),
                 );
-              }, childCount: _entries.length),
+              }, childCount: _filteredEntries.length),
             ),
         ],
       ),
